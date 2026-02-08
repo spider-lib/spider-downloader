@@ -91,7 +91,13 @@ impl Downloader for ReqwestClientDownloader {
         if let Some(body_content) = body {
             req_builder = match body_content {
                 Body::Json(json_val) => req_builder.json(&json_val),
-                Body::Form(form_val) => req_builder.form(&form_val),
+                Body::Form(form_val) => {
+                    let mut form_map = std::collections::HashMap::new();
+                    for entry in form_val.iter() {
+                        form_map.insert(entry.key().clone(), entry.value().clone());
+                    }
+                    req_builder.form(&form_map)
+                },
                 Body::Bytes(bytes_val) => req_builder.body(bytes_val),
             };
         }
