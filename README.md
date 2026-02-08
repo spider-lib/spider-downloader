@@ -41,14 +41,6 @@ impl Downloader for MyDownloader {
 }
 ```
 
-## Dependencies
-
-This crate depends on:
-- `spider-util`: For request and response data structures
-- `async-trait`: For async trait implementations
-- `http`: For HTTP status codes and related types
-- `bytes`: For byte buffer operations
-
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
