@@ -13,4 +13,6 @@ readme = "README.md"
 async-trait = "0.1"
 bytes = { version = "1.11.1", features = ["serde"] }
 http = "1.4.0"
-spider-util = { version = "0.1.1" }
+reqwest = { version = "0.13.2", features = ["json", "stream", "multipart"] }
+spider-util = { path = "../spider-util" }
+tracing = "0.1"

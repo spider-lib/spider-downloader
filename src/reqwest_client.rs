@@ -1,0 +1,137 @@
+//! Reqwest-based Downloader implementation for the `spider-lib` framework.
+//!
+//! This module provides `ReqwestClientDownloader`, a concrete implementation
+//! of the `Downloader` trait that leverages the `reqwest` HTTP client library.
+//! It is responsible for executing HTTP requests defined by `Request` objects
+//! and converting the received HTTP responses into `Response` objects suitable
+//! for further processing by the crawler.
+//!
+//! This downloader handles various HTTP methods, request bodies (JSON, form data, bytes),
+//! and integrates with the framework's error handling.
+
+use crate::{
+    Downloader,
+    SimpleHttpClient,
+};
+use spider_util::request::{Request, Body};
+use spider_util::response::Response;
+use spider_util::error::SpiderError;
+use async_trait::async_trait;
+use bytes::Bytes;
+use http::StatusCode;
+use reqwest::{Client, Proxy};
+use std::time::Duration;
+use tracing::info;
+
+#[async_trait]
+impl SimpleHttpClient for Client {
+    async fn get_text(
+        &self,
+        url: &str,
+        timeout: Duration,
+    ) -> Result<(StatusCode, Bytes), SpiderError> {
+        let resp = self.get(url).timeout(timeout).send().await?;
+        let status = resp.status();
+        let body = resp.bytes().await?;
+        Ok((status, body))
+    }
+}
+
+/// Concrete implementation of Downloader using reqwest client
+pub struct ReqwestClientDownloader {
+    client: Client,
+    timeout: Duration,
+}
+
+#[async_trait]
+impl Downloader for ReqwestClientDownloader {
+    type Client = Client;
+
+    /// Returns a reference to the underlying HTTP client.
+    fn client(&self) -> &Self::Client {
+        &self.client
+    }
+
+    async fn download(&self, request: Request) -> Result<Response, SpiderError> {
+        info!(
+            "Downloading {} (fingerprint: {})",
+            request.url,
+            request.fingerprint()
+        );
+
+        let Request {
+            url,
+            method,
+            headers,
+            body,
+            meta,
+            ..
+        } = request;
+
+        let mut client_to_use = self.client.clone();
+
+        if let Some(proxy_val) = meta.get("proxy") && let Some(proxy_str) = proxy_val.as_str() {
+            match Proxy::all(proxy_str) {
+                Ok(proxy) => {
+                    let new_client = Client::builder()
+                        .timeout(self.timeout)
+                        .proxy(proxy)
+                        .build()
+                        .map_err(|e| SpiderError::ReqwestError(e.into()))?;
+                    client_to_use = new_client;
+                }
+                Err(e) => {
+                    return Err(SpiderError::ReqwestError(e.into()));
+                }
+            }
+        }
+
+        let mut req_builder = client_to_use.request(method, url.clone());
+
+        if let Some(body_content) = body {
+            req_builder = match body_content {
+                Body::Json(json_val) => req_builder.json(&json_val),
+                Body::Form(form_val) => req_builder.form(&form_val),
+                Body::Bytes(bytes_val) => req_builder.body(bytes_val),
+            };
+        }
+
+        let res = req_builder.headers(headers).send().await?;
+
+        let response_url = res.url().clone();
+        let status = res.status();
+        let response_headers = res.headers().clone();
+        let response_body = res.bytes().await?;
+
+        Ok(Response {
+            url: response_url,
+            status,
+            headers: response_headers,
+            body: response_body,
+            request_url: url,
+            meta,
+            cached: false,
+        })
+    }
+}
+
+impl ReqwestClientDownloader {
+    /// Creates a new `ReqwestClientDownloader` with a default timeout of 30 seconds.
+    pub fn new() -> Self {
+        Self::new_with_timeout(Duration::from_secs(30))
+    }
+
+    /// Creates a new `ReqwestClientDownloader` with a specified request timeout.
+    pub fn new_with_timeout(timeout: Duration) -> Self {
+        ReqwestClientDownloader {
+            client: Client::builder().timeout(timeout).build().unwrap(),
+            timeout,
+        }
+    }
+}
+
+impl Default for ReqwestClientDownloader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
