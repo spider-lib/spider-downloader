@@ -6,6 +6,8 @@ use http::StatusCode;
 use spider_util::error::SpiderError;
 use spider_util::request::Request;
 use spider_util::response::Response;
+#[cfg(feature = "streaming")]
+use spider_util::streaming_response::StreamingResponse;
 use std::time::Duration;
 
 /// A simple HTTP client trait for fetching web content.
@@ -30,4 +32,16 @@ pub trait Downloader: Send + Sync + 'static {
 
     /// Returns a reference to the underlying HTTP client.
     fn client(&self) -> &Self::Client;
+
+    /// Download a web page as a streaming response (optional feature).
+    #[cfg(feature = "streaming")]
+    async fn download_streaming(&self, request: Request) -> Result<StreamingResponse, SpiderError> {
+        // Default implementation converts regular response to streaming
+        let response = self.download(request).await?;
+        response
+            .to_streaming_response()
+            .await
+            .map_err(|e| SpiderError::IoError(e.to_string()))
+    }
 }
+

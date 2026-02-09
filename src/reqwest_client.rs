@@ -9,17 +9,14 @@
 //! This downloader handles various HTTP methods, request bodies (JSON, form data, bytes),
 //! and integrates with the framework's error handling.
 
-use crate::{
-    Downloader,
-    SimpleHttpClient,
-};
-use spider_util::request::{Request, Body};
-use spider_util::response::Response;
-use spider_util::error::SpiderError;
+use crate::{Downloader, SimpleHttpClient};
 use async_trait::async_trait;
 use bytes::Bytes;
 use http::StatusCode;
 use reqwest::{Client, Proxy};
+use spider_util::error::SpiderError;
+use spider_util::request::{Body, Request};
+use spider_util::response::Response;
 use std::time::Duration;
 use tracing::info;
 
@@ -70,7 +67,9 @@ impl Downloader for ReqwestClientDownloader {
 
         let mut client_to_use = self.client.clone();
 
-        if let Some(proxy_val) = meta.get("proxy") && let Some(proxy_str) = proxy_val.as_str() {
+        if let Some(proxy_val) = meta.get("proxy")
+            && let Some(proxy_str) = proxy_val.as_str()
+        {
             match Proxy::all(proxy_str) {
                 Ok(proxy) => {
                     let new_client = Client::builder()
@@ -97,7 +96,7 @@ impl Downloader for ReqwestClientDownloader {
                         form_map.insert(entry.key().clone(), entry.value().clone());
                     }
                     req_builder.form(&form_map)
-                },
+                }
                 Body::Bytes(bytes_val) => req_builder.body(bytes_val),
             };
         }
@@ -130,7 +129,14 @@ impl ReqwestClientDownloader {
     /// Creates a new `ReqwestClientDownloader` with a specified request timeout.
     pub fn new_with_timeout(timeout: Duration) -> Self {
         ReqwestClientDownloader {
-            client: Client::builder().timeout(timeout).build().unwrap(),
+            client: Client::builder()
+                .timeout(timeout)
+                .pool_max_idle_per_host(200)
+                .pool_idle_timeout(Duration::from_secs(120))
+                .tcp_keepalive(Duration::from_secs(60))
+                .connect_timeout(Duration::from_secs(10))
+                .build()
+                .unwrap(),
             timeout,
         }
     }

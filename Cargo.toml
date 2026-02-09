@@ -1,6 +1,6 @@
 [package]
 name = "spider-downloader"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Downloader component for the spider-lib web scraping framework"
 license = "MIT"
@@ -14,5 +14,8 @@ async-trait = "0.1"
 bytes = { version = "1.11.1", features = ["serde"] }
 http = "1.4.0"
 reqwest = { version = "0.13.2", features = ["json", "stream", "multipart", "form"] }
-spider-util = { version = "0.1.1", path = "../spider-util" }
+spider-util = { version = "0.1.2", path = "../spider-util" }
 tracing = "0.1"
+
+[features]
+streaming = ["spider-util/streaming"]
