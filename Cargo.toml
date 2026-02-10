@@ -18,4 +18,3 @@ spider-util = { version = "0.1.7", path = "../spider-util" }
 tracing = "0.1"
 
 [features]
-stream = ["spider-util/stream"]
