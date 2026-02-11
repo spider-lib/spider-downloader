@@ -18,7 +18,10 @@ use spider_util::error::SpiderError;
 use spider_util::request::{Body, Request};
 use spider_util::response::Response;
 use std::time::Duration;
-use tracing::info;
+use log::info;
+use tokio::sync::RwLock;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[async_trait]
 impl SimpleHttpClient for Client {
@@ -38,6 +41,8 @@ impl SimpleHttpClient for Client {
 pub struct ReqwestClientDownloader {
     client: Client,
     timeout: Duration,
+    /// Per-host connection pools for better resource management
+    host_clients: Arc<RwLock<HashMap<String, Client>>>,
 }
 
 #[async_trait]
@@ -65,7 +70,12 @@ impl Downloader for ReqwestClientDownloader {
             ..
         } = request;
 
-        let mut client_to_use = self.client.clone();
+        // Get host-specific client if available, otherwise use default
+        let host = url.host_str().unwrap_or("").to_string();
+        // Convert DashMap to HashMap for the host client creation
+        let meta_hashmap: std::collections::HashMap<String, serde_json::Value> = 
+            meta.iter().map(|entry| (entry.key().clone().into_owned(), entry.value().clone())).collect();
+        let mut client_to_use = self.get_or_create_host_client(&host, &meta_hashmap).await;
 
         if let Some(proxy_val) = meta.get("proxy")
             && let Some(proxy_str) = proxy_val.as_str()
@@ -128,17 +138,51 @@ impl ReqwestClientDownloader {
 
     /// Creates a new `ReqwestClientDownloader` with a specified request timeout.
     pub fn new_with_timeout(timeout: Duration) -> Self {
+        let base_client = Client::builder()
+            .timeout(timeout)
+            .pool_max_idle_per_host(200)
+            .pool_idle_timeout(Duration::from_secs(120))
+            .tcp_keepalive(Duration::from_secs(60))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .unwrap();
+            
         ReqwestClientDownloader {
-            client: Client::builder()
-                .timeout(timeout)
-                .pool_max_idle_per_host(200)
-                .pool_idle_timeout(Duration::from_secs(120))
-                .tcp_keepalive(Duration::from_secs(60))
-                .connect_timeout(Duration::from_secs(10))
-                .build()
-                .unwrap(),
+            client: base_client.clone(),
             timeout,
+            host_clients: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Gets or creates a host-specific client with optimized settings for that host
+    async fn get_or_create_host_client(&self, host: &str, _meta: &std::collections::HashMap<String, serde_json::Value>) -> Client {
+        {
+            let clients = self.host_clients.read().await;
+            if let Some(client) = clients.get(host) {
+                return client.clone();
+            }
+        }
+
+        // Create a new client for this host with optimized settings
+        let host_specific_client = Client::builder()
+            .timeout(self.timeout)
+            .pool_max_idle_per_host(50) // Smaller pool per host to distribute connections
+            .pool_idle_timeout(Duration::from_secs(90))
+            .tcp_keepalive(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(5))
+            .build()
+            .unwrap();
+
+        {
+            let mut clients = self.host_clients.write().await;
+            // Double-check pattern to avoid race condition
+            if let Some(client) = clients.get(host) {
+                return client.clone();
+            }
+            clients.insert(host.to_string(), host_specific_client.clone());
+        }
+
+        host_specific_client
     }
 }
 
